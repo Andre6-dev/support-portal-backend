@@ -1,0 +1,65 @@
+@startuml DatosOcr
+'https://plantuml.com/sequence-diagram
+skinparam sequenceArrowThickness 1
+skinparam roundcorner 8
+skinparam sequenceParticipant underline
+skinparam ParticipantPadding 15
+skinparam BoxPadding 12
+skinparam style strictuml
+skinparam sequenceMessageAlign center
+
+mainframe **Datos Ocr**
+title ""
+autonumber
+actor "Api Usuario" as ApiUser #red
+participant "Api Rest" as ApiRest
+database "BCP ZyTrust DB" as DB
+participant "FacePhi" as FacePhi
+
+skinparam Style strictuml
+skinparam SequenceMessageAlignment center
+
+ApiUser-> ApiRest ++: datosOcrRequest\nPOST /api/clientes/nuDocCliente/tiDocCliente\n/datosOcr/
+note right: Se validan los parametros de entrada\nocrRequest.
+alt tipoAplicacionEnum=MOB
+ApiRest -> DB: obtenerClienteEnrolado(request)
+activate DB
+note right: Se busca el cliente por numDoc, tipoDoc, FormatoImage es \nFacephi = 5 y el TipoIdentificadorbioEnum que \nes IMAGEN_PLANA_SELFIE = 13
+DB --> ApiRest: imagenCliente
+deactivate DB
+note right: Se setea los datos y se devuelve la imagen del cliente.
+else En caso no sea MOB
+ApiRest -> DB: obtenerClienteEnrolado(request)
+activate DB
+note right: Se busca el cliente por numDoc, tipoDoc, FormatoImage es \nFacephi = 5 y el TipoIdentificadorbioEnum que \nes ESTRUCTURA_FACIAL = 18
+DB --> ApiRest: imagenCliente
+deactivate DB
+end
+
+ApiRest -> DB: consultarParamOcr(request)
+activate DB
+note right: Si el valor del request de tipo de aplicacion = MOB \nurl -> FACEPHI_URL_OCR\nCaso contrario si es = WEB, WMO, o CHA\nse setea en la url el FACEPHI_URL_OCR_WEB
+DB --> ApiRest: facePhiParam
+deactivate DB
+
+alt tipoAplicacion = MOB
+autonumber 8.1
+ApiRest -> ApiRest: generarRequestFacephiOcr(request, facePhiParam)
+note right: Se devuelve el facePhiOcrRequest a partir de un \nnumero de solicitud.
+
+ApiRest -> FacePhi: onboardingOcr(facePhiOcrRequest, facePhiParam)
+note right: Se espera la respuesta del FacePhiOcr acorde a \nun numero de intentos.
+FacePhi --> ApiRest: facePhiOcrResponse
+else if tipoAplicacion = WEB || tipoAplicacion = WMO || tipoAplicacion = CHA
+ApiRest -> ApiRest: generarRequestFacephiOcrWeb(request, facePhiParam)
+note right: Se devuelve el facePhiOcrRequest a partir de un \nnumero de solicitud y si la captura del documento \nes nula se setea la IMAGEN_ANVERSA e \nIMAGEN_REVERSA.
+ApiRest -> FacePhi: onboardingOcrWeb(facePhiOcrRequest, facePhiParam)
+note right: Se espera la respuesta del FacePhiOcr acorde a \nun numero de intentos.
+FacePhi --> ApiRest: facePhiOcrResponse
+end
+autonumber 9
+ApiRest -> DB: obtenerResultadoError(request, facePhiParam)
+note right: Si el resultado es nulo se nos muestra un response con \nBF_ERROR_INTERNO_FACEPHI y su key que es 2003
+ApiRest -> ApiUser:  ocrResponse
+note right: Se setea todos los valores del facePhiOcrResponse \nen la entidad validacionOcrResponse y se retorna el mismo
+@enduml

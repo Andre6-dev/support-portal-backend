@@ -1,0 +1,64 @@
+@startuml AutenticarCliente
+'https://plantuml.com/sequence-diagram
+skinparam sequenceArrowThickness 1
+skinparam roundcorner 8
+skinparam sequenceParticipant underline
+skinparam ParticipantPadding 10
+skinparam BoxPadding 10
+skinparam style strictuml
+skinparam sequenceMessageAlign center
+
+mainframe **Autenticar Usuario**
+title ""
+autonumber
+actor "Api Usuario" as ApiUser #red
+participant "Api Rest" as ApiRest
+database "BCP ZyTrust DB" as DB
+participant "FacePhi" as FacePhi
+
+skinparam Style strictuml
+skinparam SequenceMessageAlignment center
+
+ApiUser-> ApiRest ++: ValidarBiometriaFacialRequest\nPOST /api/clientes/nuDocCliente/tiDocCliente\n/validar-biometria-facial/
+ApiRest -> DB: actualizarSolicitud(request)
+note right: Se crea solicitudDto, se obtiene la lista\nde imagenes:\n- ImagenSelfie,\n- ImagenPlanaSelfie,\n- PlantillaFacial,\n- ImagenCalidad,\n- Ocr,\n- ImagenAnversoDocumento,\n- ImagenFotoDocumento\nSe encriptan las imagens con ZyCoderLib\ny se actualiza la solicitud.
+ApiRest -> DB: obtenerCliente(nuDocCliente,tiDocCliente)
+activate DB
+DB --> ApiRest: bctmCliente
+deactivate DB
+ApiRest -> DB: obtenerImagenCliente(nuDocCliente,tiDocCliente)
+activate DB
+DB --> ApiRest: bctmImagenCliente
+deactivate DB
+ApiRest -> DB: consultarParam(request)
+activate DB
+note right: Se consultan los parametros de FACEPHI_TIMEOUT_CONNECTION\n,FACEPHI_NUM_REINTENTO y\nFACEPHI_LOG_REQUEST_ENABLED, luego si es\nAutenticacion se setea en la url\nFACEPHI_URL_AUTENTICA y \nFACEPHI_TIMEOUT_AUTENTICACION
+DB --> ApiRest: FacePhiParam
+deactivate DB
+ApiRest -> ApiRest :procesarFacePhi(PhiParam,bctmImagenCliente,bctmCliente)
+note right: Se genera un objeto de peticion y luego invoca al \nfacephiResponse y a partir de eso el metodo authentica.
+ApiRest -> DB :obtenerResultadoError(facePhiResponse.getResultFacialAuthentication())
+note right: En caso sea Autenticacion el error saldra de\ngetResultFacialAuthentication.
+activate DB
+DB --> ApiRest : resultadoLogAuth
+deactivate DB
+ApiRest -> DB: guardarMovimientoFacePhi(request,facePhiResponse,resultadoLog)
+note right: Se guarda tal movimiento acorde a su tipo de Txn\ny si es Autenticacion:\nAUTENTICACION_MOBILE_FACEPHI_CLIENTE\nAUTENTICACION_WEB_FACEPHI_CLIENTE\nAUTENTICACION_CHAT_FACEPHI_CLIENTE
+group Autenticacion Cliente
+alt respuestaFacePhi = 0
+    alt operacion = Autenticacion -> A && FacePhiResponse = 3
+    alt bctmCliente != null
+    autonumber 12
+        ApiRest -> DB: desencriptarDatosCliente(bctmCliente)
+        note right: Se desencripta datos del cliente \n IN_ENCRIPTADO 1, se desencripta el id, la fecha\n,Calidad de Imagen de 100, y se hace un decode \nal No de Cliente de la entidad bctmCliente y \nse retorna esta.
+        ApiRest -> DB : generarTransaccion(movimientoDto)
+        note right: Se setea dentro del movimientoDto uno de los \ntipos de Txn:\n REGISTRO BLIENTE BD LOCAL\n ACTUALIZACION CLIENTE BD LOCAL
+        ApiRest -> DB : guardarActualizarCliente(movimientoDto)
+                note right: Se guardan las imagenes:\nEstructuraFacial\nImagenPlanaSelfie\nImagenAnversoDocumento\nImagenReversoDocumento\n
+    end
+end
+end
+end
+ApiRest -> ApiUser:  ValidarBiometriaFacialResponse
+note right: Para tener esta response se tiene que haber leido el resultadoLogAuth\n y setearlo en el codigoRespuesta y descripcionRespuesta de status.
+@enduml
